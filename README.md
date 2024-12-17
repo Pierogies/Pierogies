@@ -11,6 +11,7 @@ Pierogies (PIRGS) is a decentralized token based on the Binance Smart Chain (BSC
 Our Vision
 
 Pierogies - the most transparent memecoin for investors. All tokens are divided into individual subcontracts and are publicly available.
+
 Key Features
 
     Standard BEP-20 Functions:
@@ -32,7 +33,8 @@ Tokenomics
 
     Presale: 35%
     Staking: 25% (Separate staking contract with TimeLock functionality)
-    Liquidity Fund: 10% (Separate contract secured with a TimeLock - 50% unlocked after 2 years, 50% after 4 years)
+    Liquidity fund: 10% - Locked on dex ( 5 years )
+    Treasury fund: 10% (Separate contract secured with a TimeLock - 50% unlocked after 2 years, 50% after 4 years)
     Marketing and Partnerships: 20%
 
 Installation
@@ -40,10 +42,6 @@ Create a Repository:
 
     Fork this repository to your GitHub account.
 
-Clone the Repository:
-
-git clone https://github.com/your-username/Pierogies.git
-cd Pierogies
 
 Install Dependencies (if any):
 
