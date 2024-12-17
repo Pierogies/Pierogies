@@ -77,7 +77,7 @@ token.burn(10 * 10**18);
 
 ## Security
 
-This contract follows standard practices for BEP20 token implementation. However, ensure thorough testing and auditing before deployment.
+This contract follows standard practices for BEP20 token implementation. However, we ensured it thorough testing and auditing before deployment.
 
 ---
 
