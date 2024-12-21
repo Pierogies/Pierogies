@@ -1,31 +1,107 @@
+# 🥟 Pierogies Staking Contract
 
-# Staking Contract
-
-This repository contains a simple staking contract written in Solidity for the Ethereum Virtual Machine (EVM).
+## Overview
+Secure and flexible staking contract for Pierogies (PIRGS) token with multiple staking durations and APY rates. Features comprehensive security measures and emergency withdrawal system.
 
 ## Features
-- Stake tokens for fixed durations (1 month, 6 months, 12 months) with variable APY.
-- Calculate and claim rewards after the staking period.
-- Admin functionalities for recovering tokens and migrating stakes.
 
-## How to Use
-1. Deploy the contract by providing the address of the token to be staked.
-2. Use the `stake` function to stake tokens by specifying the amount and duration.
-3. Use the `unstake` function to withdraw staked tokens along with rewards after the lock period.
-4. Admin can recover accidentally sent tokens using `recoverERC20`.
+### Staking Options
+- 1 Month: 10% APY
+- 6 Months: 20% APY
+- 12 Months: 30% APY
 
-## APY Rates
-- **1 Month**: 10% APY
-- **6 Months**: 20% APY
-- **12 Months**: 30% APY
+### Limits
+- Minimum stake: 1 PIRGS
+- Maximum stake: 1,000,000 PIRGS
+- Maximum total rewards: 250B PIRGS
 
-## Security Features
-- Implements reentrancy protection using OpenZeppelin's `ReentrancyGuard`.
-- Owner-only functions are secured with `Ownable`.
+### Security Features
+- Reentrancy protection
+- Two-step ownership transfer with 7-day timelock
+- Emergency mode with secure withdrawal process
+- Protected staked tokens recovery system
+- Comprehensive stake validation
+- Time-based restrictions
 
-## Dependencies
-- OpenZeppelin Contracts: `@openzeppelin/contracts`
-- Solidity version: `^0.8.26`
+## Functions
+
+### User Functions
+- `stake(uint256 amount, StakeDuration duration)`: Stake tokens
+- `unstake(uint256 stakeIndex)`: Unstake tokens and claim rewards
+- `emergencyWithdraw(uint256 stakeIndex)`: Withdraw stake without rewards (emergency mode only)
+- `getUserStakes(address user)`: View all stakes for a user
+- `getPendingRewards(address user, uint256 stakeIndex)`: Check pending rewards
+
+### Admin Functions
+- `enableEmergencyMode()`: Enable emergency mode
+- `disableEmergencyMode()`: Disable emergency mode
+- `recoverERC20()`: Recover accidentally sent tokens
+- `initiateOwnershipTransfer()`: Start ownership transfer
+- `completeOwnershipTransfer()`: Complete ownership transfer
+- `renounceOwnershipPermanently()`: Permanently renounce ownership
+
+## Technical Stack
+- Solidity: 0.8.26
+- Framework: OpenZeppelin 5.0.0
+- Network: BNB Chain
+
+## Security Measures
+
+### Access Control
+- Role-based access control
+- Timelock for ownership changes
+- Emergency mode restrictions
+
+### Token Safety
+- Locked tokens tracking
+- Strict allowance checks
+- Balance validations
+- Protected staked tokens
+
+### Data Validation
+- Stake structure validation
+- Duration checks
+- Amount limits
+- APY restrictions
+
+## Error Messages
+The contract provides clear error messages for all operations, including:
+- Insufficient balances
+- Invalid stake parameters
+- Duration restrictions
+- Emergency mode status
+- Transfer failures
+- Access control violations
+
+## Events
+All important operations emit events for off-chain tracking:
+- StakeCreated
+- Unstaked
+- EmergencyModeEnabled
+- EmergencyModeDisabled
+- EmergencyWithdraw
+- TokensRecovered
+
+## Deployment
+1. Deploy PIRGS token contract
+2. Deploy staking contract with PIRGS token address
+3. Transfer ownership to timelock contract (optional)
+4. Verify contracts on block explorer
+
+## Testing
+- Comprehensive test suite available
+- Coverage includes all functions and edge cases
+- Emergency scenarios tested
+- Ownership transfer verified
+- Reward calculations validated
+
+## Audited
+The contract has been audited and all found issues have been fixed, including:
+- Access control improvements
+- Token transfer validations
+- Stake structure validation
+- Emergency functions security
+- Ownership management safety
 
 ## License
-This project is licensed under the MIT License.
+MIT
