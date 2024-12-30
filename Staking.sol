@@ -3,16 +3,13 @@ pragma solidity 0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
-// Staking contract with multiple duration options and security measures
-contract Staking is ReentrancyGuard, Ownable {
+contract Staking is ReentrancyGuard {
     using SafeMath for uint256;
 
-    IERC20 public token;
+    IERC20 public immutable token;
     uint256 public constant MAX_TOTAL_REWARDS = 250_000_000_000 * 10**18;
-    uint256 public constant OWNERSHIP_TRANSFER_TIMELOCK = 7 days;
     uint256 public constant MIN_STAKE_AMOUNT = 1 * 10**18;
     uint256 public constant MAX_STAKE_AMOUNT = 1_000_000 * 10**18;
 
@@ -22,9 +19,6 @@ contract Staking is ReentrancyGuard, Ownable {
 
     uint256 public totalRewardsPaid;
     uint256 public totalLockedTokens;
-    uint256 public ownershipTransferTimestamp;
-    address public pendingOwner;
-    bool public emergencyMode;
 
     enum StakeDuration {
         OneMonth,
@@ -47,16 +41,14 @@ contract Staking is ReentrancyGuard, Ownable {
     mapping(address => Stake[]) public stakes;
     mapping(StakeDuration => StakingPeriod) public stakingPeriods;
 
-    // Events
     event StakeCreated(address indexed user, uint256 amount, StakeDuration duration, uint256 apy);
-    event EmergencyModeEnabled(address indexed by);
-    event EmergencyModeDisabled(address indexed by);
-    event EmergencyWithdraw(address indexed user, uint256 amount);
-    event TokensRecovered(address indexed tokenAddress, address indexed recipient, uint256 amount);
     event Unstaked(address indexed user, uint256 totalAmount, uint256 rewards);
+    event TransferFailed(address indexed user, uint256 amount, string reason);
 
-    constructor(address _tokenAddress) Ownable(msg.sender) {
+    constructor(address _tokenAddress) {
         require(_tokenAddress != address(0), "Invalid token address");
+        require(_testTokenTransferability(_tokenAddress), "Token transfers are locked");
+        
         token = IERC20(_tokenAddress);
 
         stakingPeriods[StakeDuration.OneMonth] = StakingPeriod({
@@ -73,39 +65,36 @@ contract Staking is ReentrancyGuard, Ownable {
         });
     }
 
-    modifier whenEmergency() {
-        require(emergencyMode, "Not in emergency mode");
-        _;
+    function _testTokenTransferability(address _tokenAddress) internal returns (bool) {
+        IERC20 _token = IERC20(_tokenAddress);
+        uint256 minTestAmount = 1;
+        uint256 deployerBalance = _token.balanceOf(msg.sender);
+        
+        if(deployerBalance >= minTestAmount) {
+            bool success = _token.transferFrom(msg.sender, address(this), minTestAmount);
+            if(success) {
+                return _token.transfer(msg.sender, minTestAmount);
+            }
+        }
+        return false;
     }
 
-    modifier whenNotEmergency() {
-        require(!emergencyMode, "In emergency mode");
-        _;
+    function validateStakeStruct(Stake memory _stake) internal pure returns (bool) {
+        require(_stake.amount > 0, "Stake amount must be greater than 0");
+        require(_stake.timestamp <= block.timestamp, "Invalid stake timestamp");
+        require(_stake.apy <= TWELVE_MONTHS_APY, "APY exceeds maximum allowed");
+        require(
+            uint256(_stake.duration) <= uint256(StakeDuration.TwelveMonths),
+            "Invalid staking duration"
+        );
+        return true;
     }
 
-    function toString(uint256 value) internal pure returns (string memory) {
-        if (value == 0) {
-            return "0";
-        }
-        uint256 temp = value;
-        uint256 digits;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits -= 1;
-            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
-            value /= 10;
-        }
-        return string(buffer);
-    }
-
-    function validateStake(
-        uint256 amount,
-        StakeDuration duration
-    ) internal view returns (uint256 apy) {
+    function validateStake(uint256 amount, StakeDuration duration) 
+        internal 
+        view 
+        returns (uint256 apy) 
+    {
         require(amount >= MIN_STAKE_AMOUNT, "Stake amount too low");
         require(amount <= MAX_STAKE_AMOUNT, "Stake amount too high");
         
@@ -115,36 +104,20 @@ contract Staking is ReentrancyGuard, Ownable {
         return period.apy;
     }
 
-    function stake(uint256 amount, StakeDuration duration) 
-        external 
-        nonReentrant 
-        whenNotEmergency 
-    {
+    function stake(uint256 amount, StakeDuration duration) external nonReentrant {
         uint256 apy = validateStake(amount, duration);
         
+        require(token.balanceOf(msg.sender) >= amount, "Insufficient balance");
+        require(token.allowance(msg.sender, address(this)) >= amount, "Insufficient allowance");
+        
+        uint256 preBalance = token.balanceOf(address(this));
+        
+        require(token.transferFrom(msg.sender, address(this), amount), "Transfer failed");
         require(
-            token.balanceOf(msg.sender) >= amount,
-            "Insufficient token balance"
+            token.balanceOf(address(this)) == preBalance.add(amount),
+            "Transfer amount mismatch"
         );
         
-        uint256 currentAllowance = token.allowance(msg.sender, address(this));
-        require(
-            currentAllowance >= amount,
-            string(abi.encodePacked(
-                "Insufficient token allowance. Current allowance: ",
-                toString(currentAllowance),
-                ", Required amount: ",
-                toString(amount)
-            ))
-        );
-
-        require(
-            token.transferFrom(msg.sender, address(this), amount), 
-            "Token transfer failed"
-        );
-
-        totalLockedTokens = totalLockedTokens.add(amount);
-
         Stake memory newStake = Stake({
             amount: amount,
             timestamp: block.timestamp,
@@ -152,20 +125,15 @@ contract Staking is ReentrancyGuard, Ownable {
             duration: duration
         });
 
-        require(
-            newStake.amount > 0 &&
-            newStake.timestamp <= block.timestamp &&
-            newStake.apy <= TWELVE_MONTHS_APY &&
-            uint256(newStake.duration) <= uint256(StakeDuration.TwelveMonths),
-            "Invalid stake data"
-        );
-
+        require(validateStakeStruct(newStake), "Invalid stake structure");
+        
+        totalLockedTokens = totalLockedTokens.add(amount);
         stakes[msg.sender].push(newStake);
-
+        
         emit StakeCreated(msg.sender, amount, duration, apy);
     }
 
-    function calculateRewards(Stake memory _stake) internal view returns (uint256) {
+    function calculateRewards(Stake memory _stake) public view returns (uint256) {
         require(_stake.amount > 0, "Invalid stake amount");
         require(_stake.timestamp <= block.timestamp, "Invalid stake timestamp");
         require(_stake.apy <= TWELVE_MONTHS_APY, "Invalid APY");
@@ -176,153 +144,64 @@ contract Staking is ReentrancyGuard, Ownable {
         uint256 stakingTime = block.timestamp.sub(_stake.timestamp);
         require(stakingTime >= period.duration, "Minimum staking period not reached");
 
-        uint256 stakingPeriod = stakingTime / 30 days;
+        uint256 stakingPeriod = stakingTime.div(30 days);
         require(stakingPeriod <= 365, "Staking period too long");
         
         uint256 rewards = _stake.amount.mul(_stake.apy).mul(stakingPeriod).div(100);
-        require(rewards <= MAX_TOTAL_REWARDS.sub(totalRewardsPaid), "Reward calculation overflow");
+        require(
+            rewards <= MAX_TOTAL_REWARDS.sub(totalRewardsPaid),
+            "Reward calculation overflow"
+        );
         
         return rewards;
     }
 
-    function unstake(uint256 _stakeIndex) 
-        external 
-        nonReentrant 
-        whenNotEmergency 
-    {
-        require(_stakeIndex < stakes[msg.sender].length, "Invalid stake index");
+    function unstake(uint256 _stakeIndex) external nonReentrant {
+        uint256 userStakesLength = stakes[msg.sender].length;
+        require(userStakesLength > 0, "No stakes found");
+        require(_stakeIndex < userStakesLength, "Invalid stake index");
         
         Stake storage userStake = stakes[msg.sender][_stakeIndex];
+        require(validateStakeStruct(userStake), "Invalid stake data");
+        
         uint256 rewards = calculateRewards(userStake);
+        uint256 totalAmount = userStake.amount.add(rewards);
         
         require(
-            totalRewardsPaid.add(rewards) <= MAX_TOTAL_REWARDS, 
+            totalRewardsPaid.add(rewards) <= MAX_TOTAL_REWARDS,
             "Rewards exceed maximum allocation"
         );
-
-        uint256 totalAmount = userStake.amount.add(rewards);
+        
+        uint256 preBalance = token.balanceOf(msg.sender);
+        uint256 contractBalance = token.balanceOf(address(this));
+        require(contractBalance >= totalAmount, "Insufficient contract balance");
+        
+        // Update state before transfer
         totalRewardsPaid = totalRewardsPaid.add(rewards);
         totalLockedTokens = totalLockedTokens.sub(userStake.amount);
         
-        address recipient = msg.sender;
-        stakes[msg.sender][_stakeIndex] = stakes[msg.sender][stakes[msg.sender].length - 1];
+        // Safe array manipulation
+        if (_stakeIndex != userStakesLength - 1) {
+            stakes[msg.sender][_stakeIndex] = stakes[msg.sender][userStakesLength - 1];
+        }
         stakes[msg.sender].pop();
-
-        require(
-            token.balanceOf(address(this)) >= totalAmount,
-            "Insufficient contract balance"
-        );
         
-        require(
-            token.transfer(recipient, totalAmount) &&
-            token.balanceOf(recipient) >= totalAmount,
-            "Token transfer failed"
-        );
-
-        emit Unstaked(recipient, totalAmount, rewards);
-    }
-
-    function enableEmergencyMode() external onlyOwner {
-        require(!emergencyMode, "Emergency mode already enabled");
-        emergencyMode = true;
-        emit EmergencyModeEnabled(msg.sender);
-    }
-
-    function disableEmergencyMode() external onlyOwner {
-        require(emergencyMode, "Emergency mode not enabled");
-        emergencyMode = false;
-        emit EmergencyModeDisabled(msg.sender);
-    }
-
-    function emergencyWithdraw(uint256 _stakeIndex) 
-        external 
-        nonReentrant 
-        whenEmergency 
-    {
-        require(_stakeIndex < stakes[msg.sender].length, "Invalid stake index");
-        
-        Stake storage userStake = stakes[msg.sender][_stakeIndex];
-        uint256 amount = userStake.amount;
-        
-        totalLockedTokens = totalLockedTokens.sub(amount);
-        
-        stakes[msg.sender][_stakeIndex] = stakes[msg.sender][stakes[msg.sender].length - 1];
-        stakes[msg.sender].pop();
-
-        require(
-            token.balanceOf(address(this)) >= amount,
-            "Insufficient contract balance"
-        );
-        
-        require(
-            token.transfer(msg.sender, amount) &&
-            token.balanceOf(msg.sender) >= amount,
-            "Token transfer failed"
-        );
-
-        emit EmergencyWithdraw(msg.sender, amount);
-    }
-
-    function recoverERC20(address tokenAddress, uint256 tokenAmount) 
-        external 
-        onlyOwner 
-        nonReentrant 
-    {
-        require(tokenAddress != address(token), "Cannot withdraw staking token");
-        
-        IERC20 recoveryToken = IERC20(tokenAddress);
-        
-        uint256 contractBalance = recoveryToken.balanceOf(address(this));
-        require(contractBalance >= tokenAmount, "Insufficient balance to recover");
-        
-        if (tokenAddress == address(token)) {
-            uint256 availableToRecover = contractBalance.sub(totalLockedTokens);
-            require(
-                tokenAmount <= availableToRecover,
-                "Cannot withdraw staked tokens"
-            );
+        // Perform transfer after state updates
+        bool success = token.transfer(msg.sender, totalAmount);
+        if (!success) {
+            emit TransferFailed(msg.sender, totalAmount, "Transfer failed");
+            revert("Transfer failed");
         }
         
-        address recipient = owner();
-        
         require(
-            recoveryToken.transfer(recipient, tokenAmount) &&
-            recoveryToken.balanceOf(recipient) >= tokenAmount,
-            "Token recovery failed"
+            token.balanceOf(msg.sender) == preBalance.add(totalAmount),
+            "Transfer amount verification failed"
         );
         
-        emit TokensRecovered(tokenAddress, recipient, tokenAmount);
+        emit Unstaked(msg.sender, totalAmount, rewards);
     }
 
-    function initiateOwnershipTransfer(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "New owner cannot be zero address");
-        pendingOwner = newOwner;
-        ownershipTransferTimestamp = block.timestamp + OWNERSHIP_TRANSFER_TIMELOCK;
-    }
-
-    function completeOwnershipTransfer() external {
-        require(msg.sender == pendingOwner, "Only pending owner can complete transfer");
-        require(block.timestamp >= ownershipTransferTimestamp, "Timelock not expired");
-        _transferOwnership(pendingOwner);
-        pendingOwner = address(0);
-    }
-
-    function renounceOwnershipPermanently() external onlyOwner {
-        _transferOwnership(address(0));
-    }
-
-    function getRecoverableAmount(address tokenAddress) external view returns (uint256) {
-        if (tokenAddress == address(token)) {
-            uint256 contractBalance = IERC20(tokenAddress).balanceOf(address(this));
-            if (contractBalance <= totalLockedTokens) {
-                return 0;
-            }
-            return contractBalance.sub(totalLockedTokens);
-        } else {
-            return IERC20(tokenAddress).balanceOf(address(this));
-        }
-    }
-
+    // View functions
     function getUserStakes(address user) external view returns (Stake[] memory) {
         return stakes[user];
     }
@@ -330,5 +209,9 @@ contract Staking is ReentrancyGuard, Ownable {
     function getPendingRewards(address user, uint256 stakeIndex) external view returns (uint256) {
         require(stakeIndex < stakes[user].length, "Invalid stake index");
         return calculateRewards(stakes[user][stakeIndex]);
+    }
+
+    function getStakingPeriod(StakeDuration duration) external view returns (StakingPeriod memory) {
+        return stakingPeriods[duration];
     }
 }
