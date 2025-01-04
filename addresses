@@ -1,5 +1,6 @@
 Deployed on mainnet-
 PIRGS contract address: 0x6588367a1d8890AAFEcAF1e3C4a1c5bBe3C4f2d0
-Staking contract address: 
-Timelock contract address: 
+Staking contract address: 0xe45e954Eb13260F4463F73d80851B2502d6E884A
+Creator Timelock: 0x00c408D6EBcdEd2Be1f443B03aa04E00942cd915
+10 years Timelock contract address: 0x207b4980a69bEEa465E12a9E788b49ee191B4eb9
 Main token holder address: 0xA80C1b7675E0a8527E650c7a30b9D8c9A26FD08b
