@@ -47,8 +47,6 @@ contract Staking is ReentrancyGuard {
 
     constructor(address _tokenAddress) {
         require(_tokenAddress != address(0), "Invalid token address");
-        require(_testTokenTransferability(_tokenAddress), "Token transfers are locked");
-        
         token = IERC20(_tokenAddress);
 
         stakingPeriods[StakeDuration.OneMonth] = StakingPeriod({
@@ -65,21 +63,7 @@ contract Staking is ReentrancyGuard {
         });
     }
 
-    function _testTokenTransferability(address _tokenAddress) internal returns (bool) {
-        IERC20 _token = IERC20(_tokenAddress);
-        uint256 minTestAmount = 1;
-        uint256 deployerBalance = _token.balanceOf(msg.sender);
-        
-        if(deployerBalance >= minTestAmount) {
-            bool success = _token.transferFrom(msg.sender, address(this), minTestAmount);
-            if(success) {
-                return _token.transfer(msg.sender, minTestAmount);
-            }
-        }
-        return false;
-    }
-
-    function validateStakeStruct(Stake memory _stake) internal pure returns (bool) {
+    function validateStakeStruct(Stake memory _stake) internal view returns (bool) {
         require(_stake.amount > 0, "Stake amount must be greater than 0");
         require(_stake.timestamp <= block.timestamp, "Invalid stake timestamp");
         require(_stake.apy <= TWELVE_MONTHS_APY, "APY exceeds maximum allowed");
@@ -201,7 +185,6 @@ contract Staking is ReentrancyGuard {
         emit Unstaked(msg.sender, totalAmount, rewards);
     }
 
-    // View functions
     function getUserStakes(address user) external view returns (Stake[] memory) {
         return stakes[user];
     }
