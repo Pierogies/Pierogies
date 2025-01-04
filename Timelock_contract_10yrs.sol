@@ -1,3 +1,4 @@
+
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
@@ -30,15 +31,9 @@ contract CreatorTimelock {
         _status = _NOT_ENTERED;
     }
 
-    constructor(
-        IBEP20 _token,
-        address _creator
-    ) {
+    constructor(IBEP20 _token, address _creator) {
         require(address(_token) != address(0), "Invalid token address");
         require(_creator != address(0), "Invalid creator address");
-        
-        // Test token transferability during deployment
-        require(_testTokenTransferability(_token), "Token transfers are locked");
         
         token = _token;
         creator = _creator;
@@ -46,41 +41,24 @@ contract CreatorTimelock {
         _status = _NOT_ENTERED;
     }
 
-    function _testTokenTransferability(IBEP20 _token) internal returns (bool) {
-        uint256 minTestAmount = 1;
-        
-        uint256 deployerBalance = _token.balanceOf(msg.sender);
-        if(deployerBalance >= minTestAmount) {
-            bool success = _token.transferFrom(msg.sender, address(this), minTestAmount);
-            if(success) {
-                return _token.transfer(msg.sender, minTestAmount);
-            }
-        }
-        return true;
-    }
-
     function fund(uint256 totalSupply) external nonReentrant {
         require(totalLocked == 0, "Already funded");
         require(totalSupply > 0, "Invalid total supply");
         
-        uint256 amountForCreators = totalSupply / 10; // 10% of the total supply
+        uint256 amountForCreators = totalSupply / 10;
         
-        // Check allowance before transfer
         require(
             token.allowance(msg.sender, address(this)) >= amountForCreators,
             "Insufficient allowance"
         );
         
-        // Record balance before transfer
         uint256 preBalance = token.balanceOf(address(this));
         
-        // Attempt transfer
         require(
             token.transferFrom(msg.sender, address(this), amountForCreators),
             "Funding failed"
         );
         
-        // Verify transfer was successful
         require(
             token.balanceOf(address(this)) == preBalance + amountForCreators,
             "Transfer amount mismatch"
@@ -98,18 +76,15 @@ contract CreatorTimelock {
         uint256 releaseAmount = totalLocked;
         uint256 preBalance = token.balanceOf(creator);
         
-        // Update state before transfer
         releaseClaimed = true;
         
-        // Perform transfer
         bool success = token.transfer(creator, releaseAmount);
         if (!success) {
-            releaseClaimed = false; // Revert state if transfer fails
+            releaseClaimed = false;
             emit TransferFailed(creator, releaseAmount);
             revert("Release failed");
         }
         
-        // Verify transfer was successful
         require(
             token.balanceOf(creator) == preBalance + releaseAmount,
             "Transfer amount mismatch"
